@@ -1,18 +1,21 @@
 import logging
 import os
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_from_directory, abort
 import yt_dlp
 
 app = Flask(__name__, template_folder='templates')
 
-# Configuração do logger
 logging.basicConfig(level=logging.INFO)
 
-# Caminho do diretório de download
-DOWNLOAD_DIR = os.path.join(os.path.expanduser('~'), 'Downloads\musicas')
+# Diretório de download (Linux-friendly)
+DOWNLOAD_DIR = os.path.join(os.path.expanduser('~'), 'Downloads', 'musicas')
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-# Caminho do ffmpeg.exe
-FFMPEG_PATH = r"C:\ffmpeg\bin\ffmpeg.exe"  # <<< MUITO IMPORTANTE: coloque o caminho correto aqui
+def my_hook(d):
+    if d['status'] == 'downloading':
+        pass
+    if d['status'] == 'finished':
+        app.logger.info("Download finalizado, convertendo...")
 
 def download_audio(url, output_path):
     try:
@@ -24,24 +27,19 @@ def download_audio(url, output_path):
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'ffmpeg_location': FFMPEG_PATH,  # <<< Aqui está passando o caminho do ffmpeg
             'progress_hooks': [my_hook],
             'noplaylist': True,
-            'quiet': False,
+            'quiet': True,
         }
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-
-        app.logger.info("Download de áudio concluído")
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            # O arquivo final é o .mp3 após conversão
+            mp3_filename = os.path.splitext(filename)[0] + ".mp3"
+            return os.path.basename(mp3_filename)
     except Exception as e:
         app.logger.error(f"Erro durante o download: {e}")
-
-def my_hook(d):
-    if d['status'] == 'downloading':
-        pass
-    if d['status'] == 'finished':
-        app.logger.info("Download finalizado, convertendo...")
+        return None
 
 @app.route('/')
 def index():
@@ -50,9 +48,15 @@ def index():
 @app.route('/download', methods=['POST'])
 def download():
     video_url = request.form['video_url']
-    download_audio(video_url, DOWNLOAD_DIR)
-    return "O download está em andamento. Verifique os logs para obter o progresso."
+    filename = download_audio(video_url, DOWNLOAD_DIR)
+    if filename is None:
+        return "Erro no download, verifique os logs.", 500
+
+    # Envia o arquivo para o cliente baixar
+    try:
+        return send_from_directory(DOWNLOAD_DIR, filename, as_attachment=True)
+    except FileNotFoundError:
+        abort(404)
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=5000, debug=True)
-    #app.run(debug=True)
