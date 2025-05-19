@@ -54,4 +54,5 @@ def download():
     return "O download está em andamento. Verifique os logs para obter o progresso."
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
+    #app.run(debug=True)
